@@ -1,4 +1,4 @@
-"""SO-101 kinematics. Distances in meters, angles in degrees."""
+"""SO-101 kinematics. Cartesian positions are in the robot world frame (meters). Arm joints use degrees."""
 import numpy as np
 
 def Rx(thetadeg):
@@ -25,7 +25,7 @@ def Rz(thetadeg):
                      [s, c, 0],
                      [0, 0, 1]])
 
-def make_pose(rotation, displacement):
+def make_transform(rotation, displacement):
     return np.block([[rotation, np.array(displacement).reshape(3, 1)],
                      [0, 0, 0, 1]])
 
@@ -37,47 +37,48 @@ def invert_transform(g):
     g_inv[:3,3] = -R.T @ p
     return g_inv
 
-BASE_HEIGHT = 0.0047625
+# BASE_HEIGHT = 0.0047625
+BASE_HEIGHT = 0.0
+# g_ab maps coordinates from frame b into frame a (w = world, t = tool).
 def get_gw1(theta1_deg):
     displacement = (0.0388353, 0.0, BASE_HEIGHT + 0.0624)
     rotation = Rz(180) @ Rx(180) @ Rz(theta1_deg)
-    pose = np.block([[rotation, np.array(displacement).reshape(3,1)], [0, 0, 0, 1]])
-    return pose
+    return make_transform(rotation, displacement)
 
 def get_g12(theta2_deg):
     displacement = (-0.0303992, 0.0, -0.0542)
     rotation = Ry(-90) @ Rx(-90) @ Rz(theta2_deg)
-    return make_pose(rotation, displacement)
+    return make_transform(rotation, displacement)
  
 def get_g23(theta3_deg):
     displacement = (-0.11257, -0.028, 0.0)
     rotation = Rz(90) @ Rz(theta3_deg)
-    return make_pose(rotation, displacement)
+    return make_transform(rotation, displacement)
  
 def get_g34(theta4_deg):
     displacement = (-0.1349, 0.0, 0.0)
     rotation = Rz(-90) @ Rz(theta4_deg)
-    return make_pose(rotation, displacement)
+    return make_transform(rotation, displacement)
  
 def get_g45(theta5_deg):
     displacement = (0.0, -0.0611, 0.0)
     rotation = Rz(180) @ Rx(90) @ Rz(theta5_deg)
-    return make_pose(rotation, displacement)
+    return make_transform(rotation, displacement)
  
 
 def get_g5t():
     displacement = (0, 0, -0.1034)
     rotation = np.eye(3)
-    pose = np.block([[rotation, np.array(displacement).reshape(3,1)], [0, 0, 0, 1]])
-    return pose
+    return make_transform(rotation, displacement)
 
 
-def get_forward_kinematics(position_dict):
-    gw1 = get_gw1(position_dict['shoulder_pan'])
-    g12 = get_g12(position_dict['shoulder_lift'])
-    g23 = get_g23(position_dict['elbow_flex'])
-    g34 = get_g34(position_dict['wrist_flex'])
-    g45 = get_g45(position_dict['wrist_roll'])
+def forward_kinematics(joint_positions):
+    """Return tool position and rotation in the robot world frame."""
+    gw1 = get_gw1(joint_positions['shoulder_pan'])
+    g12 = get_g12(joint_positions['shoulder_lift'])
+    g23 = get_g23(joint_positions['elbow_flex'])
+    g34 = get_g34(joint_positions['wrist_flex'])
+    g45 = get_g45(joint_positions['wrist_roll'])
     g5t = get_g5t()
     gwt = gw1 @ g12 @ g23 @ g34 @ g45 @ g5t
     position = gwt[0:3, 3]
@@ -85,15 +86,15 @@ def get_forward_kinematics(position_dict):
     return position, rotation
 
 
-def get_wrist_flex_position(target_position):
+def get_wrist_flex_pose(target_position):
     target_eef_position = np.array(target_position, dtype=float).copy()
-    target_eef_position[2] += 0.01
-    gwt = make_pose(np.eye(3), target_eef_position)
+    # target_eef_position[2] += 0.01
+    gwt = make_transform(np.eye(3), target_eef_position)
     g4t = get_g45(0) @ get_g5t()
     gw4 = gwt @ np.linalg.inv(g4t)
     wrist_flex_position = gw4[:3,3]
-    wrist_flex_orientation = gw4[:3,:3]
-    return wrist_flex_position, wrist_flex_orientation
+    wrist_flex_rotation = gw4[:3,:3]
+    return wrist_flex_position, wrist_flex_rotation
 
 BLOCK_WIDTH = 0.0285  # meters (1.125 inches)
 FIXED_JAW_OFFSET = 0.0079  # meters, from the wrist roll axis to the inner face of the fixed jaw
@@ -128,7 +129,8 @@ def solve_theta4(theta1_deg, theta2_deg, theta3_deg):
     return np.rad2deg(theta4_rad)
 
 def get_inverse_kinematics(target_position, target_orientation=np.eye(3)):
-    joint_config = {
+    """Solve for a world-frame tool position. target_orientation is currently unused."""
+    joint_positions = {
         'shoulder_pan': 0.0,
         'shoulder_lift': 0.0,
         'elbow_flex': 0.0,
@@ -139,7 +141,7 @@ def get_inverse_kinematics(target_position, target_orientation=np.eye(3)):
 
     target_x, target_y, target_z = target_position
     theta1_deg = -np.rad2deg(np.arctan2(target_y, target_x-0.0388353))
-    wrist_flex_position, wrist_flex_orientation = get_wrist_flex_position(target_position)
+    wrist_flex_position, _ = get_wrist_flex_pose(target_position)
     joint2_pose = get_gw1(theta1_deg) @ get_g12(0)
     joint2_position = joint2_pose[:3,3] 
 
@@ -160,9 +162,18 @@ def get_inverse_kinematics(target_position, target_orientation=np.eye(3)):
     theta4_deg = solve_theta4(theta1_deg, theta2_deg, theta3_deg)
     # print(f"theta2={theta2_deg} theta3={theta3_deg}")
 
-    joint_config['shoulder_pan'] = theta1_deg
-    joint_config["shoulder_lift"] = theta2_deg
-    joint_config["elbow_flex"] = theta3_deg
-    joint_config["wrist_flex"] = theta4_deg
-    joint_config["wrist_roll"] = theta1_deg
-    return joint_config
+    joint_positions['shoulder_pan'] = theta1_deg
+    joint_positions["shoulder_lift"] = theta2_deg
+    joint_positions["elbow_flex"] = theta3_deg
+    joint_positions["wrist_flex"] = theta4_deg
+    joint_positions["wrist_roll"] = theta1_deg
+    return joint_positions
+
+
+# Compatibility with earlier lab scripts.
+make_pose = make_transform
+get_wrist_flex_position = get_wrist_flex_pose
+
+
+def get_forward_kinematics(position_dict):
+    return forward_kinematics(position_dict)
