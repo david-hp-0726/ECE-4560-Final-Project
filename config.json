@@ -1,0 +1,18 @@
+{
+  "base_from_board": [
+    [0, -1, 0, 0.245],
+    [-1, 0, 0, 0.0],
+    [0, 0, -1, 0.0],
+    [0, 0, 0, 1]
+  ],
+  "camera_index": 1,
+  "extrinsics": "extrinsics.npz",
+  "robot_id": "follower-1",
+  "port": "COM4",
+  "calibration_directory": "calibration_files",
+  "capture_z_base_m": -0.01,
+  "lift_m": 0.04,
+  "move_seconds": 2.0,
+  "gripper_open_pct": 80,
+  "gripper_closed_pct": 0
+}

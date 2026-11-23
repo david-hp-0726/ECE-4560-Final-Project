@@ -125,10 +125,14 @@ class Camera:
         saving. Returns None if the board pose cannot be estimated.
         """
         from aruco import Aruco
-
         if self.camera_matrix is None:
-            raise ValueError("Calculate or load camera intrinsics first.")
+            self.load_intrinsics()
+            
+        if sys.platform == "win32":
+            self.capture()  # Consume any frame held by DirectShow.
+
+        frame = self.capture()
         return Aruco(board).estimate_board_from_camera(
-            self.capture(), self.camera_matrix, self.distortion,
+            frame, self.camera_matrix, self.distortion,
             preview=preview, save_path=path,
         )
